@@ -17,7 +17,10 @@ package(default_visibility = ["//visibility:public"])
 
 licenses(["notice"])  # Apache 2.0
 
-exports_files(["LICENSE", "VERSION"])
+exports_files([
+    "LICENSE",
+    "VERSION",
+])
 
 # ---------------------------------------------
 # Parameters to the compilation:  compiler (e.g., for atomics), architecture
@@ -27,168 +30,92 @@ exports_files(["LICENSE", "VERSION"])
 # are needed on given platforms; hence all the config_setting() rules below.
 
 config_setting(
-    name = "gcc_linux_x86_32_1",
-    values = {"cpu": "piii"},
+    name = "clang",
+    flag_values = {"@bazel_tools//tools/cpp:compiler": "clang"},
 )
 
 config_setting(
-    name = "gcc_linux_x86_64_1",
-    values = {"cpu": "k8"},
+    name = "gcc",
+    flag_values = {"@bazel_tools//tools/cpp:compiler": "gcc"},
 )
 
 config_setting(
-    name = "gcc_linux_x86_64_2",
-    values = {"cpu": "haswell"},
+    name = "msvc",
+    flag_values = {"@bazel_tools//tools/cpp:compiler": "msvc"},
 )
 
 config_setting(
-    name = "gcc_linux_aarch64",
-    values = {"cpu": "aarch64"},
-)
-
-config_setting(
-    name = "gcc_linux_ppc64",
-    values = {"cpu": "ppc"},
-)
-
-config_setting(
-    name = "gcc_linux_s390x",
-    values = {"cpu": "s390x"},
-)
-
-config_setting(
-    name = "clang_macos_x86_64",
-    values = {"cpu": "darwin"},
-)
-
-config_setting(
-    name = "android_x86_32",
-    values = {"cpu": "x86"},
-)
-
-config_setting(
-    name = "android_x86_64",
-    values = {"cpu": "x86_64"},
-)
-
-config_setting(
-    name = "android_armeabi",
-    values = {"cpu": "armeabi"},
-)
-
-config_setting(
-    name = "android_arm",
-    values = {"cpu": "armeabi-v7a"},
-)
-
-config_setting(
-    name = "android_arm64",
-    values = {"cpu": "arm64-v8a"},
-)
-
-config_setting(
-    name = "msvc_windows_x86_64",
-    values = {"cpu": "x64_windows"},
-)
-
-config_setting(
-    name = "freebsd",
-    values = {"cpu": "freebsd"},
-)
-
-config_setting(
-    name = "ios_x86_64",
-    values = {"cpu": "ios_x86_64"},
+    name = "windows_msvc",
+    constraint_values = ["@platforms//os:windows"],
+    flag_values = {"@bazel_tools//tools/cpp:compiler": "msvc"},
 )
 
 # ---------------------------------------------
 # Compilation options.
 
-load(":bazel/pkg_path_name.bzl", "pkg_path_name")
+# load(":bazel/pkg_path_name.bzl", "pkg_path_name")
 
-# Compilation options that apply to both C++11 and C.
-NSYNC_OPTS_GENERIC = select({
-    # Select the CPU architecture include directory.
-    # This select() has no real effect in the C++11 build, but satisfies a
-    # #include that would otherwise need a #if.
-    ":gcc_linux_x86_32_1": ["-I" + pkg_path_name() + "/platform/x86_32"],
-    ":gcc_linux_x86_64_1": ["-I" + pkg_path_name() + "/platform/x86_64"],
-    ":gcc_linux_x86_64_2": ["-I" + pkg_path_name() + "/platform/x86_64"],
-    ":gcc_linux_aarch64": ["-I" + pkg_path_name() + "/platform/aarch64"],
-    ":gcc_linux_ppc64": ["-I" + pkg_path_name() + "/platform/ppc64"],
-    ":gcc_linux_s390x": ["-I" + pkg_path_name() + "/platform/s390x"],
-    ":clang_macos_x86_64": ["-I" + pkg_path_name() + "/platform/x86_64"],
-    ":freebsd": ["-I" + pkg_path_name() + "/platform/x86_64"],
-    ":ios_x86_64": ["-I" + pkg_path_name() + "/platform/x86_64"],
-    ":android_x86_32": ["-I" + pkg_path_name() + "/platform/x86_32"],
-    ":android_x86_64": ["-I" + pkg_path_name() + "/platform/x86_64"],
-    ":android_armeabi": ["-I" + pkg_path_name() + "/platform/arm"],
-    ":android_arm": ["-I" + pkg_path_name() + "/platform/arm"],
-    ":android_arm64": ["-I" + pkg_path_name() + "/platform/aarch64"],
-    ":msvc_windows_x86_64": ["-I" + pkg_path_name() + "/platform/x86_64"],
+NSYNC_INCLUDES_GENERIC = select({
+    "@platforms//cpu:aarch32": ["platform/arm"],
+    "@platforms//cpu:aarch64": ["platform/aarch64"],
+    "@platforms//cpu:ppc64le": ["platform/ppc64"],
+    "@platforms//cpu:s390x": ["platform/s390x"],
+    "@platforms//cpu:x86_32": ["platform/x86_32"],
+    "@platforms//cpu:x86_64": ["platform/x86_64"],
+}) + [
+    "public",
+    "internal",
+    "platform/posix",
+]
+
+NSYNC_INCLUDES = select({
+    # Select the OS include directory.
+    "@platforms//os:linux": ["platform/linux"],
+    "@platforms//os:macos": ["platform/macos"],
+    "@platforms//os:freebsd": ["platform/freebsd"],
+    "@platforms//os:windows": ["platform/win32"],
+    "//conditions:default": [],
+}) + NSYNC_INCLUDES_GENERIC
+
+NSYNC_INCLUDES_CPP = select({
+    # On Linux, the C++11 library's synchronization primitives are
+    # surprisingly slow.   See also NSYNC_SRC_PLATFORM_CPP, below.
+    "@platforms//os:linux": ["platform/c++11.futex"],
+    "@platforms//os:ios": ["platform/gcc_no_tls"],
+    "@platforms//os:windows": ["platform/win32"],
     "//conditions:default": [],
 }) + [
-    "-I" + pkg_path_name() + "/public",
-    "-I" + pkg_path_name() + "/internal",
-    "-I" + pkg_path_name() + "/platform/posix",
+    "platform/c++11",
 ] + select({
-    ":msvc_windows_x86_64": [
+    ":windows_msvc": [
+        "platform/win32",
+        "platform/msvc",
     ],
-    ":freebsd": ["-pthread"],
+    "//conditions:default": ["platform/gcc"],
+}) + NSYNC_INCLUDES_GENERIC
+
+NSYNC_OPTS_GENERIC = select({
+    "@platforms//os:windows": [],
+    "@platforms//os:freebsd": ["-pthread"],
     "//conditions:default": [
         "-D_POSIX_C_SOURCE=200809L",
         "-pthread",
     ],
 })
 
-# Options for C build, rather then C++11 build.
 NSYNC_OPTS = select({
-    # Select the OS include directory.
-    ":gcc_linux_x86_32_1": ["-I" + pkg_path_name() + "/platform/linux"],
-    ":gcc_linux_x86_64_1": ["-I" + pkg_path_name() + "/platform/linux"],
-    ":gcc_linux_x86_64_2": ["-I" + pkg_path_name() + "/platform/linux"],
-    ":gcc_linux_aarch64": ["-I" + pkg_path_name() + "/platform/linux"],
-    ":gcc_linux_ppc64": ["-I" + pkg_path_name() + "/platform/linux"],
-    ":gcc_linux_s390x": ["-I" + pkg_path_name() + "/platform/linux"],
-    ":clang_macos_x86_64": ["-I" + pkg_path_name() + "/platform/macos"],
-    ":freebsd": ["-I" + pkg_path_name() + "/platform/freebsd"],
-    ":ios_x86_64": ["-I" + pkg_path_name() + "/platform/macos"],
-    ":android_x86_32": ["-I" + pkg_path_name() + "/platform/linux"],
-    ":android_x86_64": ["-I" + pkg_path_name() + "/platform/linux"],
-    ":android_armeabi": ["-I" + pkg_path_name() + "/platform/linux"],
-    ":android_arm": ["-I" + pkg_path_name() + "/platform/linux"],
-    ":android_arm64": ["-I" + pkg_path_name() + "/platform/linux"],
-    ":msvc_windows_x86_64": ["-I" + pkg_path_name() + "/platform/win32"],
-    "//conditions:default": [],
-}) + select({
-    # Select the compiler include directory.
-    ":gcc_linux_x86_32_1": ["-I" + pkg_path_name() + "/platform/gcc"],
-    ":gcc_linux_x86_64_1": ["-I" + pkg_path_name() + "/platform/gcc"],
-    ":gcc_linux_x86_64_2": ["-I" + pkg_path_name() + "/platform/gcc"],
-    ":gcc_linux_aarch64": ["-I" + pkg_path_name() + "/platform/gcc"],
-    ":gcc_linux_ppc64": ["-I" + pkg_path_name() + "/platform/gcc"],
-    ":gcc_linux_s390x": ["-I" + pkg_path_name() + "/platform/gcc"],
-    ":clang_macos_x86_64": ["-I" + pkg_path_name() + "/platform/clang"],
-    ":freebsd": ["-I" + pkg_path_name() + "/platform/clang"],
-    ":ios_x86_64": ["-I" + pkg_path_name() + "/platform/clang"],
-    ":android_x86_32": ["-I" + pkg_path_name() + "/platform/gcc"],
-    ":android_x86_64": ["-I" + pkg_path_name() + "/platform/gcc"],
-    ":android_armeabi": ["-I" + pkg_path_name() + "/platform/gcc"],
-    ":android_arm": ["-I" + pkg_path_name() + "/platform/gcc"],
-    ":android_arm64": ["-I" + pkg_path_name() + "/platform/gcc"],
-    ":msvc_windows_x86_64": ["-I" + pkg_path_name() + "/platform/msvc"],
-}) + select({
     # Apple deprecated their atomics library, yet recent versions have no
     # working version of stdatomic.h; so some recent versions need one, and
     # other versions prefer the other.  For the moment, just ignore the
     # depreaction.
-    ":clang_macos_x86_64": ["-Wno-deprecated-declarations"],
+    "@platforms//os:macos": ["-Wno-deprecated-declarations"],
     "//conditions:default": [],
 }) + NSYNC_OPTS_GENERIC
 
+# Options for C build, rather then C++11 build.
 # Options for C++11 build, rather then C build.
 NSYNC_OPTS_CPP = select({
-    ":msvc_windows_x86_64": [
+    ":msvc": [
         "/TP",
     ],
     "//conditions:default": [
@@ -199,41 +126,22 @@ NSYNC_OPTS_CPP = select({
 }) + select({
     # Some versions of MacOS (notably Sierra) require -D_DARWIN_C_SOURCE
     # to include some standard C++11 headers, like <mutex>.
-    ":clang_macos_x86_64": ["-D_DARWIN_C_SOURCE"],
-    "//conditions:default": [],
-}) + select({
-    # On Linux, the C++11 library's synchronization primitives are
-    # surprisingly slow.   See also NSYNC_SRC_PLATFORM_CPP, below.
-    ":gcc_linux_x86_32_1": ["-I" + pkg_path_name() + "/platform/c++11.futex"],
-    ":gcc_linux_x86_64_1": ["-I" + pkg_path_name() + "/platform/c++11.futex"],
-    ":gcc_linux_x86_64_2": ["-I" + pkg_path_name() + "/platform/c++11.futex"],
-    ":gcc_linux_aarch64": ["-I" + pkg_path_name() + "/platform/c++11.futex"],
-    ":gcc_linux_ppc64": ["-I" + pkg_path_name() + "/platform/c++11.futex"],
-    ":gcc_linux_s390x": ["-I" + pkg_path_name() + "/platform/c++11.futex"],
+    "@platforms//os:macos": ["-D_DARWIN_C_SOURCE"],
     "//conditions:default": [],
 }) + [
     "-DNSYNC_ATOMIC_CPP11",
     "-DNSYNC_USE_CPP11_TIMEPOINT",
-    "-I" + pkg_path_name() + "/platform/c++11",
-] + select({
-    # must follow the -I...platform/c++11
-    ":ios_x86_64": ["-I" + pkg_path_name() + "/platform/gcc_no_tls"],
-    ":msvc_windows_x86_64": [
-        "-I" + pkg_path_name() + "/platform/win32",
-        "-I" + pkg_path_name() + "/platform/msvc",
-    ],
-    "//conditions:default": ["-I" + pkg_path_name() + "/platform/gcc"],
-}) + NSYNC_OPTS_GENERIC
+] + NSYNC_OPTS_GENERIC
 
 # Link options (for tests) built in C (rather than C++11).
 NSYNC_LINK_OPTS = select({
-    ":msvc_windows_x86_64": [],
+    ":msvc": [],
     "//conditions:default": ["-pthread"],
 })
 
 # Link options (for tests) built in C++11 (rather than C).
 NSYNC_LINK_OPTS_CPP = select({
-    ":msvc_windows_x86_64": [],
+    ":msvc": [],
     "//conditions:default": ["-pthread"],
 })
 
@@ -366,21 +274,11 @@ NSYNC_SRC_FREEBSD = [
 
 # OS-specific library source.
 NSYNC_SRC_PLATFORM = select({
-    ":gcc_linux_x86_32_1": NSYNC_SRC_LINUX,
-    ":gcc_linux_x86_64_1": NSYNC_SRC_LINUX,
-    ":gcc_linux_x86_64_2": NSYNC_SRC_LINUX,
-    ":gcc_linux_aarch64": NSYNC_SRC_LINUX,
-    ":gcc_linux_ppc64": NSYNC_SRC_LINUX,
-    ":gcc_linux_s390x": NSYNC_SRC_LINUX,
-    ":clang_macos_x86_64": NSYNC_SRC_MACOS,
-    ":freebsd": NSYNC_SRC_FREEBSD,
-    ":ios_x86_64": NSYNC_SRC_MACOS,
-    ":android_x86_32": NSYNC_SRC_ANDROID,
-    ":android_x86_64": NSYNC_SRC_ANDROID,
-    ":android_armeabi": NSYNC_SRC_ANDROID,
-    ":android_arm": NSYNC_SRC_ANDROID,
-    ":android_arm64": NSYNC_SRC_ANDROID,
-    ":msvc_windows_x86_64": NSYNC_SRC_WINDOWS,
+    "@platforms//os:linux": NSYNC_SRC_LINUX,
+    "@platforms//os:macos": NSYNC_SRC_MACOS,
+    "@platforms//os:freebsd": NSYNC_SRC_FREEBSD,
+    "@platforms//os:windows": NSYNC_SRC_WINDOWS,
+    "@platforms//os:android": NSYNC_SRC_ANDROID,
 })
 
 # C++11-specific (OS and architecture independent) library source.
@@ -392,23 +290,14 @@ NSYNC_SRC_PLATFORM_CPP = [
     # On Linux, the C++11 library's synchronization primitives are surprisingly
     # slow, at least at the time or writing (early 2018).  Raw kernel
     # primitives are ten times faster for wakeups.
-    ":gcc_linux_x86_32_1": ["platform/linux/src/nsync_semaphore_futex.c"],
-    ":gcc_linux_x86_64_1": ["platform/linux/src/nsync_semaphore_futex.c"],
-    ":gcc_linux_x86_64_2": ["platform/linux/src/nsync_semaphore_futex.c"],
-    ":gcc_linux_aarch64": ["platform/linux/src/nsync_semaphore_futex.c"],
-    ":gcc_linux_ppc64": ["platform/linux/src/nsync_semaphore_futex.c"],
-    ":gcc_linux_s390x": ["platform/linux/src/nsync_semaphore_futex.c"],
+    "@platforms//os:linux": ["platform/linux/src/nsync_semaphore_futex.c"],
     "//conditions:default": ["platform/c++11/src/nsync_semaphore_mutex.cc"],
 }) + select({
     # MacOS and Android don't have working C++11 thread local storage.
-    ":clang_macos_x86_64": ["platform/posix/src/per_thread_waiter.c"],
-    ":android_x86_32": ["platform/posix/src/per_thread_waiter.c"],
-    ":android_x86_64": ["platform/posix/src/per_thread_waiter.c"],
-    ":android_armeabi": ["platform/posix/src/per_thread_waiter.c"],
-    ":android_arm": ["platform/posix/src/per_thread_waiter.c"],
-    ":android_arm64": ["platform/posix/src/per_thread_waiter.c"],
-    ":ios_x86_64": ["platform/posix/src/per_thread_waiter.c"],
-    ":msvc_windows_x86_64": [
+    "@platforms//os:macos": ["platform/posix/src/per_thread_waiter.c"],
+    "@platforms//os:ios": ["platform/posix/src/per_thread_waiter.c"],
+    "@platforms//os:android": ["platform/posix/src/per_thread_waiter.c"],
+    "@platforms//os:windows": [
         "platform/win32/src/clock_gettime.c",
         # Windows has no thread-specific data with thread-exit destructors; we
         # must emulate it with C++ per-thread class destructors.
@@ -459,7 +348,7 @@ cc_library(
     srcs = NSYNC_SRC_GENERIC + NSYNC_SRC_PLATFORM,
     hdrs = NSYNC_HDR_GENERIC,
     copts = NSYNC_OPTS,
-    includes = ["public"],
+    includes = ["public"] + NSYNC_INCLUDES,
     textual_hdrs = NSYNC_INTERNAL_HEADERS + NSYNC_INTERNAL_HEADERS_PLATFORM,
 )
 
@@ -469,7 +358,7 @@ cc_library(
     srcs = NSYNC_SRC_GENERIC + NSYNC_SRC_PLATFORM_CPP,
     hdrs = NSYNC_HDR_GENERIC,
     copts = NSYNC_OPTS_CPP,
-    includes = ["public"],
+    includes = ["public"] + NSYNC_INCLUDES_CPP,
     textual_hdrs = NSYNC_INTERNAL_HEADERS + NSYNC_INTERNAL_HEADERS_PLATFORM,
 )
 

@@ -1,0 +1,5 @@
+module(
+    name = "nsync",
+)
+
+bazel_dep(name = "platforms", version = "0.0.8")
